@@ -43,8 +43,8 @@ public class GSImprovedAlgorithmTest extends TestCase {
         "test_dt5", "test_dt6", "test_dt7", "test_dt8", "test_dt10", "test_dt12"};
     try {
       for (String datasetName : datasetNames) {
-        Point[] points = GSDTAlgorithmTest.readPoints("src/test/resources/"+datasetName+".points");
-        List<Point[]> correctTriangulation = GSDTAlgorithmTest.readTriangles("src/test/resources/"+datasetName+".triangles", points);
+        Point[] points = GSDTAlgorithmTest.readPoints("src/test/resources/Delaunay/"+datasetName+".points");
+        List<Point[]> correctTriangulation = GSDTAlgorithmTest.readTriangles("src/test/resources/Delaunay/"+datasetName+".triangles", points);
 
         GSImprovedAlgorithm algo = new GSImprovedAlgorithm(points, null);
         Triangulation answer = algo.getFinalTriangulation();
@@ -59,18 +59,18 @@ public class GSImprovedAlgorithmTest extends TestCase {
             else
               i++;
           }
-          assertTrue(String.format("Triangle (%d, %d, %d) not expected in the answer",
+          assertTrue(String.format("Triangle (%d, %d, %d) not expected in the answer of '%s'",
               Arrays.binarySearch(points, triangle[0]),
               Arrays.binarySearch(points, triangle[1]),
-              Arrays.binarySearch(points, triangle[2])), found);
+              Arrays.binarySearch(points, triangle[2]), datasetName), found);
         }
         for (Point[] triangle : correctTriangulation) {
-          System.out.printf("Triangle (%d, %d, %d) expected but not found\n",
+          System.out.printf("Triangle (%d, %d, %d) expected in '%s' but not found\n",
               Arrays.binarySearch(points, triangle[0]),
               Arrays.binarySearch(points, triangle[1]),
-              Arrays.binarySearch(points, triangle[2]));
+              Arrays.binarySearch(points, triangle[2]), datasetName);
         }
-        assertTrue(String.format("%d triangles not found", correctTriangulation.size()),
+        assertTrue(String.format("%d triangles not found in '%s'", correctTriangulation.size(), datasetName),
             correctTriangulation.isEmpty());
       }
     } catch (IOException e) {
@@ -85,12 +85,12 @@ public class GSImprovedAlgorithmTest extends TestCase {
    * - Two intersecting edges in the triangulation
    */
   public void testTriangulationsNoGroundTruth() {
-    String[] datasetNames = {"test_dt9", "test_dt13", "test_dt14"};
+    String[] datasetNames = {"test_dt9", "test_dt13", "test_dt14", "test_dt17", };
     try {
       // A flag that is set to true when the first error is found
       final BooleanWritable errorFound = new BooleanWritable(false);
       for (String datasetName : datasetNames) {
-        Point[] points = GSDTAlgorithmTest.readPoints("src/test/resources/"+datasetName+".points");
+        Point[] points = GSDTAlgorithmTest.readPoints("src/test/resources/Delaunay/"+datasetName+".points");
 
         GSImprovedAlgorithm algo = new GSImprovedAlgorithm(points, null) {
           @Override

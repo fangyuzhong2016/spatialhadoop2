@@ -137,6 +137,8 @@ public class HDFRecordReader<S extends NASAShape>
     
     // Retrieve the data array
     DDVGroup dataGroup = hdfFile.findGroupByName(datasetName);
+    if (dataGroup == null)
+      throw new RuntimeException("Dataset '"+datasetName+"' not found in file: "+inFile.getName());
     boolean fillValueFound = false;
     int resolution = 0;
     // Retrieve metadata
@@ -159,11 +161,15 @@ public class HDFRecordReader<S extends NASAShape>
           Object minValue = vheader.getEntryAt(0);
           if (minValue instanceof Integer)
             nasaDataset.minValue = (Integer) minValue;
+          else if (minValue instanceof Short)
+            nasaDataset.minValue = (Short) minValue;
           else if (minValue instanceof Byte)
             nasaDataset.minValue = (Byte) minValue;
           Object maxValue = vheader.getEntryAt(1);
           if (maxValue instanceof Integer)
             nasaDataset.maxValue = (Integer) maxValue;
+          else if (maxValue instanceof Short)
+            nasaDataset.maxValue = (Short) maxValue;
           else if (maxValue instanceof Byte)
             nasaDataset.maxValue = (Byte) maxValue;
         }
@@ -298,7 +304,7 @@ public class HDFRecordReader<S extends NASAShape>
     
     private void skipFillValue() {
       while (position < unparsedDataArray.length
-          && (!skipFillValue || isFillValue(position)))
+          && skipFillValue && isFillValue(position))
         position += valueSize;
     }
 
@@ -336,7 +342,7 @@ public class HDFRecordReader<S extends NASAShape>
   }
 
   /**
-   * Recover fill values in the array {@link Values}.
+   * Recover fill values in the values array.
    * @param conf
    * @throws IOException 
    * @throws Exception 
@@ -433,6 +439,12 @@ public class HDFRecordReader<S extends NASAShape>
    * and <code>false</code> values for land areas.
    */
   public static void recoverXYShorts(ByteBuffer values, short fillValue, BitArray waterMask) {
+    // Reset all values in water to the fill value even if they are already set
+    for (int i = 0; i < values.limit(); i += 2) {
+      if (waterMask.get(i/2))
+        values.putShort(i, fillValue);
+    }
+
     // Resolution of the dataset which is the size of each of its two dimensions
     // e.g., 1200x1200, 2400x2400, or 4800x4800
     int resolution = (int) Math.sqrt(values.limit() / 2);

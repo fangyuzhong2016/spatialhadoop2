@@ -154,7 +154,6 @@ public class SpatialAlgorithms {
     };
 
     long t1 = System.currentTimeMillis();
-    LOG.debug("Joining lists "+ R.size()+" with "+S.size());
     Collections.sort(R, comparator);
     Collections.sort(S, comparator);
 
@@ -206,7 +205,6 @@ public class SpatialAlgorithms {
       e.printStackTrace();
     }
     long t2 = System.currentTimeMillis();
-    LOG.debug("Finished plane sweep in "+(t2-t1)+" millis and found "+count+" pairs");
     return count;
 	}
 
@@ -225,7 +223,6 @@ public class SpatialAlgorithms {
 	    };
 	    
 	    long t1 = System.currentTimeMillis();
-	    LOG.debug("Joining arrays "+ R.length+" with "+S.length);
 	    Arrays.sort(R, comparator);
 	    Arrays.sort(S, comparator);
 
@@ -276,7 +273,6 @@ public class SpatialAlgorithms {
 	      e.printStackTrace();
 	    }
 	    long t2 = System.currentTimeMillis();
-	    LOG.debug("Finished plane sweep filter only in "+(t2-t1)+" millis and found "+count+" pairs");
 	    return count;
 	  }
 
@@ -295,7 +291,6 @@ public class SpatialAlgorithms {
     };
     
     long t1 = System.currentTimeMillis();
-    LOG.debug("Joining arrays "+ R.length+" with "+S.length);
     Arrays.sort(R, comparator);
     Arrays.sort(S, comparator);
 
@@ -345,7 +340,6 @@ public class SpatialAlgorithms {
       e.printStackTrace();
     }
     long t2 = System.currentTimeMillis();
-    LOG.debug("Finished plane sweep in "+(t2-t1)+" millis and found "+count+" pairs");
     return count;
   }
 
@@ -421,8 +415,7 @@ public class SpatialAlgorithms {
       e.printStackTrace();
     }
     long t2 = System.currentTimeMillis();
-    LOG.debug("Finished spatial join plane sweep in "+(t2-t1)+" millis and found "+count+" pairs");
-    
+
     return count;
   }
 
@@ -449,7 +442,6 @@ public class SpatialAlgorithms {
     };
     
     long t1 = System.currentTimeMillis();
-    LOG.debug("Self Join of "+ rs.length+" shapes");
     Arrays.sort(rs, comparator);
 
     int i = 0, j = 0;
@@ -500,8 +492,7 @@ public class SpatialAlgorithms {
       e.printStackTrace();
     }
     long t2 = System.currentTimeMillis();
-    LOG.debug("Finished self plane sweep in "+(t2-t1)+" millis and found "+count+" pairs");
-    
+
     return count;
   }
 
@@ -607,7 +598,7 @@ public class SpatialAlgorithms {
           for (int i = i1; i < i2; i++) {
             int j = i + 1;
             boolean duplicate = false;
-            while (!duplicate && j < i2 && allPoints[i].x + threshold > allPoints[j].x) {
+            while (!duplicate && j < allPoints.length && allPoints[i].x + threshold > allPoints[j].x) {
               double dy = Math.abs(allPoints[j].y - allPoints[i].y);
               if (dy < threshold)
                 duplicate = true;

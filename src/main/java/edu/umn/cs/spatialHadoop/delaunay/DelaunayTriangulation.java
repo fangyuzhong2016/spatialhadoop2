@@ -22,6 +22,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.LocalJobRunner;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -217,9 +218,10 @@ public class DelaunayTriangulation {
     SpatialInputFormat3.setInputPaths(job, inPaths);
     job.setOutputFormatClass(DelaunayTriangulationOutputFormat.class);
     TextOutputFormat.setOutputPath(job, outPath);
-    
+
     // Set column boundaries to define the boundaries of each reducer
     SpatialSite.splitReduceSpace(job, inPaths, params);
+    job.getConfiguration().setInt(LocalJobRunner.LOCAL_MAX_MAPS, Runtime.getRuntime().availableProcessors());
 
     // Submit the job
     if (!params.getBoolean("background", false)) {

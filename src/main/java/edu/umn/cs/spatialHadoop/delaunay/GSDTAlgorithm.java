@@ -11,6 +11,7 @@ import java.util.Stack;
 import java.util.Vector;
 
 import edu.umn.cs.spatialHadoop.core.SpatialAlgorithms;
+import edu.umn.cs.spatialHadoop.util.IFastSum;
 import edu.umn.cs.spatialHadoop.util.MergeSorter;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -70,6 +71,10 @@ public class GSDTAlgorithm {
    * Use to report progress to avoid mapper or reducer timeout
    */
   protected Progressable progress;
+
+  /**A temporary array used to compute sums accurately using {@link IFastSum}*/
+  private transient double[] values = new double[17];
+
 
   /**
    * A class that stores a set of triangles for part of the sites.
@@ -178,8 +183,22 @@ public class GSDTAlgorithm {
     /**
      * Perform some sanity checks to see if the current triangulation could
      * be incorrect. This can be used to find as early as possible when the
-     * output becomes bad.
-     * @return
+     * output becomes bad. Notice that it is named 'isIncorrect' rather than
+     * 'isCorrect' for sanity. If the function returns <code>true</code> it
+     * indicates for sure that there is some error. If it returns <code>false</code>
+     * the underlying triangulation might or might not be correct.
+     *
+     * In particular, this method checks for three types of errors:
+     * <ul>
+     *   <li>Intersection: No two segments in the triangulation should intersect</li>
+     *   <li>Convex hull: All edges of the convex hull should be part of the Delaunay triangulation</li>
+     *   <li>Triangulation: Edges should form triangles. There should not be any areas with
+     *   polygons of more than three edges. To test this feature, each vertex is considered. The
+     *   neighbors of this vertex are sorted in CCW order. Then, we check that each two consecutive
+     *   neighbors that form less than 180 degrees are also neighbors.</li>
+     * </ul>
+     * @return <code>true</code> if a violation of the Delaunay triangulation was
+     * found; <code>false</code> if no errors were found.
      */
     public boolean isIncorrect() {
       // Test if there are any overlapping edges
@@ -204,14 +223,21 @@ public class GSDTAlgorithm {
         }
       }
 
-      Edge[] aredges = edges.toArray(new Edge[edges.size()]);
+      Edge[] arEdges = edges.toArray(new Edge[edges.size()]);
       final BooleanWritable correct = new BooleanWritable(true);
 
       try {
-        SpatialAlgorithms.SelfJoin_rectangles(aredges, new OutputCollector<Edge, Edge>() {
+        SpatialAlgorithms.SelfJoin_rectangles(arEdges, new OutputCollector<Edge, Edge>() {
           static final double Threshold = 1E-5;
           @Override
           public void collect(Edge e1, Edge e2) throws IOException {
+            if (e1.source == e2.source || e1.source == e2.destination ||
+                e1.destination == e2.source || e1.destination == e2.destination) {
+              // Skip the test if the two edges share an end point.
+              // If they share an end point they have to be intersected but it
+              // is not considered a violation of the triangulation property.
+              return;
+            }
             // Do a refine step where we compare the actual lines
             double x1 = xs[e1.source];
             double y1 = ys[e1.source];
@@ -233,8 +259,12 @@ public class GSDTAlgorithm {
             double maxx2 = Math.max(x3, x4);
             double miny2 = Math.min(y3, y4);
             double maxy2 = Math.max(y3, y4);
-            if ((ix - minx1 > Threshold && ix - maxx1 < -Threshold) && (iy - miny1 > Threshold && iy - maxy1 < -Threshold) &&
-                (ix - minx2 > Threshold && ix - maxx2 < -Threshold) && (iy - miny2 > Threshold && iy - maxy2 < -Threshold)) {
+            // Make sure that the intersection is on the two line segments.
+            // The intersection has to be in the x and y ranges of the two line
+            // segments. A threshold is used to avoid precision error where the
+            // intersection is off by a little bit due to calculation errors.
+            if ((ix > minx1 + Threshold && ix < maxx1-Threshold) && (iy > miny1 + Threshold && iy < maxy1-Threshold) &&
+                (ix > minx2 + Threshold && ix < maxx2-Threshold) && (iy > miny2 + Threshold && iy < maxy2-Threshold)) {
               System.out.printf("line %f, %f, %f, %f\n", x1, y1, x2, y2);
               System.out.printf("line %f, %f, %f, %f\n", x3, y3, x4, y4);
               System.out.printf("circle %f, %f, 0.5\n", ix, iy);
@@ -243,7 +273,7 @@ public class GSDTAlgorithm {
           }
         }, null);
         if (!correct.get())
-          return false;
+          return true; // true means incorrect
 
         // Test if all the lines of the convex hull are edges
         boolean collinear_ch = true;
@@ -259,7 +289,7 @@ public class GSDTAlgorithm {
             int d = convexHull[(i+1)%convexHull.length];
             if (!neighbors[s].contains(d)) {
               System.out.printf("Edge %d, %d on the convex hull but not found in the DT\n", s, d);
-              return false;
+              return true; // true means incorrect
             }
           }
         }
@@ -271,19 +301,20 @@ public class GSDTAlgorithm {
           final IntArray ineighbors = neighbors[i];
           if (ineighbors.size() == 1)
             continue;
-          final Point center = points[i];
-          Comparator<Point> ccw_comparator = new Comparator<Point>() {
+          final int center = i;
+          //final Point center = points[i];
+          Comparator<Integer> ccw_comparator = new Comparator<Integer>() {
             @Override
-            public int compare(Point a, Point b) {
-              if (a.x - center.x >= 0 && b.x - center.x < 0)
+            public int compare(Integer a, Integer b) {
+              if (xs[a] - xs[center] >= 0 && xs[b] - xs[center] < 0)
                 return 1;
-              if (a.x - center.x < 0 && b.x - center.x >= 0)
+              if (xs[a] - xs[center] < 0 && xs[b] - xs[center] >= 0)
                 return -1;
-              if (a.x - center.x == 0 && b.x - center.x == 0)
-                return Double.compare(b.y - center.y, a.y - center.y);
+              if (xs[a] - xs[center] == 0 && xs[b] - xs[center] == 0)
+                return Double.compare(ys[b] - ys[center], ys[a] - ys[center]);
 
               // compute the cross product of vectors (center -> a) x (center -> b)
-              double det = (a.x - center.x) * (b.y - center.y) - (b.x - center.x) * (a.y - center.y);
+              double det = (xs[a] - xs[center]) * (ys[b] - ys[center]) - (xs[b] - xs[center]) * (ys[a] - ys[center]);
               if (det < 0)
                 return -1;
               if (det > 0)
@@ -294,8 +325,8 @@ public class GSDTAlgorithm {
           for (int n1 = ineighbors.size() - 1; n1 >= 0 ; n1--) {
             for (int n2 = 0; n2 < n1; n2++) {
               // Compare neighbors n2 and n2+1
-              final Point a = points[ineighbors.get(n2)];
-              final Point b = points[ineighbors.get(n2+1)];
+              final int a = ineighbors.get(n2);
+              final int b = ineighbors.get(n2+1);
               if (ccw_comparator.compare(a, b) > 0)
                 ineighbors.swap(n2, n2+1);
             }
@@ -306,16 +337,16 @@ public class GSDTAlgorithm {
             int n1 = ineighbors.get(j1);
             int n2 = ineighbors.get(j2);
             // Check if the triangle (i, n1, n1+1) can be reported
-            double a_x = points[n1].x - points[i].x;
-            double a_y = points[n1].y - points[i].y;
-            double b_x = points[n2].x - points[i].x;
-            double b_y = points[n2].y - points[i].y;
+            double a_x = xs[n1] - xs[i];
+            double a_y = ys[n1] - ys[i];
+            double b_x = xs[n2] - xs[i];
+            double b_y = ys[n2] - ys[i];
             if (a_x * b_y - a_y * b_x < 0) {
               // Triangle is correct. Now make sure that the edge n1-n2 exists
               if (!neighbors[n1].contains(n2)) {
                 System.out.printf("An incomplete triangle (%d,%d,%d)\n",
                     i, n1, n2);
-                return true; // Incorrect
+                return true; // true means incorrect
               }
             }
           }
@@ -324,10 +355,10 @@ public class GSDTAlgorithm {
 
       } catch (IOException e) {
         e.printStackTrace();
-        return true; // Incorrect
+        return true; // true means incorrect
       }
 
-      return false; // Correct
+      return false; // false means correct
     }
 
     public Rectangle getMBR() {
@@ -340,10 +371,13 @@ public class GSDTAlgorithm {
 
     public void draw(PrintStream out) {
       Rectangle mbr = getMBR();
+      this.draw(out, mbr);
+    }
+
+    public void draw(PrintStream out, Rectangle mbr) {
       double scale = 1000 / Math.max(mbr.getWidth(), mbr.getHeight());
       this.draw(out, mbr, scale);
     }
-
     public void draw(PrintStream out, Rectangle mbr, double scale) {
       // Draw to rasem
       out.println("=begin");
@@ -1205,25 +1239,57 @@ public class GSDTAlgorithm {
   }
 
   /**
-   * Returns twice the area of the oriented triangle (a, b, c), i.e., the
-   * area is positive if the triangle is oriented counterclockwise.
-   */
-  double triArea(int p1, int p2, int p3) {
-    return (xs[p2] - xs[p1])*(ys[p3] - ys[p1]) - (ys[p2] - ys[p1])*(xs[p3] - xs[p1]);
-  }
-
-  /**
    * Returns true if p4 is inside the circumcircle of the three points
    * p1, p2, and p3
-   * If the p4 is exactly on the circumference of the circle, it returns false.
+   * If p4 is exactly on the circumference of the circle, it returns false.
    * See Guibas and Stolfi (1985) p.107.
    * @return true iff p4 is inside the circle (p1, p2, p3)
    */
   boolean inCircle(int p1, int p2, int p3, int p4) {
-    return (xs[p1]*xs[p1] + ys[p1]*ys[p1]) * triArea(p2, p3, p4) -
-        (xs[p2] * xs[p2] + ys[p2]*ys[p2]) * triArea(p1, p3, p4) +
-        (xs[p3]*xs[p3] + ys[p3]*ys[p3]) * triArea(p1, p2, p4) -
-        (xs[p4]*xs[p4] + ys[p4]*ys[p4]) * triArea(p1, p2, p3) > 0;
+
+    // The calculations might seem too complicated. They were originally written
+    // in a very simple way but they resulted in round-off errors in very
+    // degenerate cases. After some investigation and tests, I ended up rewriting
+    // them in the way below. I had to inline the calculation of the area of
+    // a triangle and integrate it in the higher level to be able to reach the
+    // expressions below. The original expressions were:
+    // triArea(a,b,c) = (b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x)
+    // norm2(a) = a.x^2 + a.y^2
+    // inCircle(p1,p2,p3,p4) = triArea(p2,p3,p4)*norm2(p1) - triArea(p1,p3,p4)*norm2(p2)
+    //                        +triArea(p1,p2,p4)*norm2(p3) - triArea(p1,p2,p3)*norm2(p4);
+
+    double v1 = (xs[p3] - xs[p2]) * (ys[p4] - ys[p2]);
+    double v2 = (ys[p3] - ys[p2]) * (xs[p4] - xs[p2]);
+    values[1]  = v1 * xs[p1] * xs[p1];
+    values[2]  = -v2 * xs[p1] * xs[p1];
+    values[3]  =  v1 * ys[p1] * ys[p1];
+    values[4]  = -v2 * ys[p1] * ys[p1];
+
+    v1 = (xs[p3] - xs[p1]) * (ys[p4] - ys[p1]);
+    v2 = (ys[p3] - ys[p1]) * (xs[p4] - xs[p1]);
+    values[5]  = -v1 * xs[p2] * xs[p2];
+    values[6]  =  v2 * xs[p2] * xs[p2];
+    values[7]  = -v1 * ys[p2] * ys[p2];
+    values[8]  =  v2 * ys[p2] * ys[p2];
+
+    v1 = (xs[p2] - xs[p1]) * (ys[p4] - ys[p1]);
+    v2 = (ys[p2] - ys[p1]) * (xs[p4] - xs[p1]);
+
+    values[9]  =  v1 * xs[p3] * xs[p3];
+    values[10] = -v2 * xs[p3] * xs[p3];
+    values[11] =  v1 * ys[p3] * ys[p3];
+    values[12] = -v2 * ys[p3] * ys[p3];
+
+    v1 = (xs[p2] - xs[p1]) * (ys[p3] - ys[p1]);
+    v2 = (ys[p2] - ys[p1]) * (xs[p3] - xs[p1]);
+
+    values[13] = -v1 * xs[p4] * xs[p4];
+    values[14] =  v2 * xs[p4] * xs[p4];
+    values[15] = -v1 * ys[p4] * ys[p4];
+    values[16] =  v2 * ys[p4] * ys[p4];
+
+    IFastSum.r_c = 0;
+    return IFastSum.iFastSum(values, 16) > 0;
   }
 
 
